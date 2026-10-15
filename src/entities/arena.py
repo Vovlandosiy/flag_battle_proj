@@ -4,71 +4,69 @@ import pygame
 import pymunk
 
 class RotatingHoleArena:
-    def __init__(self, space_manager, center_x, center_y, radius=350):
+    WALL_THICKNESS = 6
+    ELASTICITY = 0.6
+    FRICTION = 0.3
+
+    def __init__(self, space_manager, center_x, center_y, radius):
         self.space_manager = space_manager
         self.center = (center_x, center_y)
-        self.radius = radius
+        self.radius = radius # Принимает адаптивный радиус из game.py
         
-        # --- РАНДОМИЗАЦИЯ ПАРАМЕТРОВ АРЕНЫ ---
-        # Скорость вращения (радиан в секунду). Например, от 0.3 до 0.8
+        # Рандомизация параметров вращения и дыры/отверстия
         self.rotation_speed = random.uniform(0.3, 0.8)
-        # Направление вращения: 1 — по часовой, -1 — против часовой
         self.direction = random.choice([1, -1])
-        
-        # Размер отверстия в градусах (например, от 25 до 45 градусов)
         self.hole_angle_deg = random.randint(15, 25)
         
-        # --- СОЗДАНИЕ ТЕЛА АРЕНЫ ---
-        # Чтобы объект мог вращаться, его тип должен быть KINEMATIC (двигается скриптом/мотором, игнорирует гравитацию)
+        # Создаем кинематическое тело
         self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
         self.body.position = self.center
-        
-        # Задаем угловую скорость вращения тела
         self.body.angular_velocity = self.rotation_speed * self.direction
+        
+        # Регистрируем тело в физическом мире ОДИН раз до цикла
+        self.space_manager.add_object(self.body, None)
         
         self.shapes = []
         self._build_arena_with_hole()
 
     def _build_arena_with_hole(self):
-        segment_count = 90  # Общее количество сегментов для круга
+        segment_count = 90  
         hole_segments = int(segment_count * (self.hole_angle_deg / 360.0))
         
-        # Строим круг, пропуская сегменты, которые попадают в зону "отверстия"
         for i in range(segment_count):
-            # Если текущий сегмент находится в зоне дыры (например, в самом верху круга) — пропускаем его
             if 0 <= i < hole_segments:
                 continue
                 
             angle1 = (i / segment_count) * math.pi * 2
             angle2 = ((i + 1) / segment_count) * math.pi * 2
             
-            # Координаты точек относительно центра локального тела арены (0, 0)
             x1 = math.cos(angle1) * self.radius
             y1 = math.sin(angle1) * self.radius
             x2 = math.cos(angle2) * self.radius
             y2 = math.sin(angle2) * self.radius
             
-            # Создаем сегмент стены, привязанный к нашему вращающемуся телу self.body
-            wall_shape = pymunk.Segment(self.body, (x1, y1), (x2, y2), 6)
-            wall_shape.elasticity = 0.6  # Чуть уменьшим прыгучесть, чтобы шары предсказуемо скатывались
-            wall_shape.friction = 0.3
+            wall_shape = pymunk.Segment(self.body, (x1, y1), (x2, y2), self.WALL_THICKNESS)
+            wall_shape.elasticity = self.ELASTICITY  
+            wall_shape.friction = self.FRICTION
             
-            # Регистрируем форму в физическом пространстве
-            self.space_manager.add_object(self.body, wall_shape)  # Передаем None для тела, так как само тело добавим один раз позже
+            # Добавляем в пространство только форму (коллайдер), передавая None вместо тела
+            self.space_manager.add_object(None, wall_shape)  
             self.shapes.append(wall_shape)
             
+    def destroy(self):
+        # Удаляем все формы стен
+        for shape in self.shapes:
+            self.space_manager.remove_object(None, shape)
+        # Удаляем само тело арены
+        self.space_manager.remove_object(self.body, None)
+        self.shapes.clear()
 
     def draw(self, surface):
-        # Чтобы красиво нарисовать вращающуюся арену в Pygame, 
-        # нужно учесть текущий угол поворота физического тела (self.body.angle)
         current_angle = self.body.angle
-        
         for shape in self.shapes:
-            # Получаем локальные координаты точек сегмента
             a = shape.a
             b = shape.b
             
-            # Поворачиваем точки по тригонометрической матрице с учетом угла тела
             def rotate_point(pt, angle):
                 x = pt.x * math.cos(angle) - pt.y * math.sin(angle)
                 y = pt.x * math.sin(angle) + pt.y * math.cos(angle)
@@ -76,6 +74,74 @@ class RotatingHoleArena:
                 
             screen_a = rotate_point(a, current_angle)
             screen_b = rotate_point(b, current_angle)
+            pygame.draw.line(surface, (80, 100, 140), screen_a, screen_b, self.WALL_THICKNESS)
+
+class CentralPropeller:
+    BLADE_LENGTH_RATIO = 1 
+    THICKNESS = 6     
+    ELASTICITY = 0.8
+    FRICTION = 0.15
+    
+    MIN_SPEED = 1
+    MAX_SPEED = 1
+
+    def __init__(self, space_manager, center_x, center_y, arena_radius):
+        self.space_manager = space_manager
+        self.center = (center_x, center_y)
+        
+        # Динамически вычисляем длину лопасти на основе переданного радиуса арены
+        self.blade_length = arena_radius * self.BLADE_LENGTH_RATIO
+
+        self.rotation_speed = random.uniform(self.MIN_SPEED, self.MAX_SPEED)
+        self.direction = random.choice([1, -1])
+
+        self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
+        self.body.position = self.center
+        self.body.angular_velocity = self.rotation_speed * self.direction
+
+        # Регистрируем тело ОДИН раз
+        self.space_manager.add_object(self.body, None)
+
+        self.shapes = []
+        self._build_propeller()
+
+    def _build_propeller(self):
+        directions = [
+            ((0, 0), (0, self.blade_length)),
+            ((0, 0), (0, -self.blade_length)),
+            ((0, 0), (self.blade_length, 0)),
+            ((0, 0), (-self.blade_length, 0))
+        ]
+
+        for a, b in directions:
+            blade_shape = pymunk.Segment(self.body, a, b, self.THICKNESS)
+            blade_shape.elasticity = self.ELASTICITY
+            blade_shape.friction = self.FRICTION
             
-            # Рисуем линию сегмента стены на экране
-            pygame.draw.line(surface, (80, 100, 140), screen_a, screen_b, 6)
+            self.space_manager.add_object(None, blade_shape)
+            self.shapes.append(blade_shape)
+
+
+    def destroy(self):
+        for shape in self.shapes:
+            self.space_manager.remove_object(None, shape)
+        self.space_manager.remove_object(self.body, None)
+        self.shapes.clear()
+
+    def draw(self, surface):
+        current_angle = self.body.angle
+        cx, cy = self.center
+        
+        for shape in self.shapes:
+            a = shape.a
+            b = shape.b
+
+            def rotate_point(pt, angle):
+                x = pt.x * math.cos(angle) - pt.y * math.sin(angle)
+                y = pt.x * math.sin(angle) + pt.y * math.cos(angle)
+                return int(x + cx), int(y + cy)
+
+            screen_a = rotate_point(a, current_angle)
+            screen_b = rotate_point(b, current_angle)
+            
+            pygame.draw.line(surface, (235, 120, 40), screen_a, screen_b, self.THICKNESS)

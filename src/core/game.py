@@ -1,97 +1,118 @@
+# src/core/game.py
 import pygame
 import sys
 import random
+import math
 from src.core.space_manager import SpaceManager
-from src.entities.arena import RotatingHoleArena  # Новый импорт
+from src.entities.arena import RotatingHoleArena, CentralPropeller 
 from src.entities.ball import CountryBall
+from src.services.country_db import get_all_countries  
 
 class Game:
     def __init__(self):
         pygame.init()
         
-        self.width = 800
-        self.height = 800
+        self.width = 800 
+        self.height = 800  
         self.fps = 60
         
         self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Country Flag Battle - Rotating Arena")
+        pygame.display.set_caption("Country Flag Battle - Press SPACE to Switch Scenes")
         self.clock = pygame.time.Clock()
         
-        self.space_manager = SpaceManager()
+        self.space_manager = SpaceManager(gravity_y=600)
         
-        # Создаем новую вращающуюся арену
-        self.arena = RotatingHoleArena(self.space_manager, self.width // 2, self.height // 2)
-        
+        self.current_scene_type = "propeller"  # Может быть "classic" или "propeller"
+        self.arena = None
+        self.propeller = None
         self.balls = []
-         # Тестовый список кодов стран для проверки
-        test_countries = ["ad", "ae", "af", "ag", "ai", "al", "am", "an", "ao", "aq", 
-                          "ar", "at", "au", "aw", "ax", "az", "ba", "bb", "bd", "be", 
-                          "bf", "bg", "bh", "bi", "bj", "bm", "bn", "bo", "br", "bs", 
-                          "bt", "bw", "by", "bz", "ca", "cd", "cf", "cg", "ch", "ci", 
-                          "ck", "cl", "cm", "cn", "co", "cr", "cu", "cv", "cw", "cy", 
-                          "cz", "de", "dj", "dk", "dm", "do", "dz", "ec", "ee", "eg", 
-                          "eh", "en", "er", "es", "et", "eu", "fi", "fj", "fk", "fm", 
-                          "fo", 
-                          "fr", "ga", "gb", "gd", "ge", "gf", "gg", "gh", "gi", "gl", 
-                          "gm", "gn", "gp", "gq", "gr", "gs", "gt", "gw", "gy", "hk", 
-                          "hn", "hr", "ht", "hu", "ic", "id", "ie", "il", "im", "in", 
-                          "iq", "ir", "is", "it", "je", "jm", "jo", "jp", "ke", "kg", 
-                          "kh", "ki", "km", "kn", "ko", "kp", "kr", "kw", "ky", "kz", 
-                          "la", "lb", "lc", "li", "lk", "lr", "ls", "lt", "lu", "lv", 
-                          "ly", "ma", "mc", "md", "me", "mg", "mh", "mk", "ml", "mm", 
-                          "mn", "mo", "mp", "mq", "mr", "mt", "mu", "mv", "mw", "mx", 
-                          "my", "mz", "na", "nc", "ne", "ng", "ni", "nl", "no", "np", 
-                          "nr", "nu", "nz", "om", "pa", "pe", "pf", "pg", "ph", "pk", 
-                          "pl", "pr", "ps", "pt", "pw", "py", "qa", "qs", "ro", "rs", 
-                          "ru", "rw", "sa", "sb", "sc", "sd", "se", "sg", "sh", "si", 
-                          "sk", "sl", "sm", "sn", "so", "sr", "ss", "st", "sv", "sx", 
-                          "sy", "sz", "tc", "td", "tg", "th", "tj", "tl", "tm", "tn", 
-                          "to", "tr", "tt", "tv", "tw", "tz", "ua", "ug", "us", "uy", 
-                          "uz", "va", "vc", "ve", "vg", "vi", "vn", "vu", "wl", "ws", 
-                          "xi", "xk", "ye", "za", "zm", "zw"]
         
-        # Спавним по 5 штук каждой страны из тестового списка
-        for country in test_countries:
-            for _ in range(1):
-                spawn_x = (self.width // 2) + random.randint(-80, 80)
-                spawn_y = (self.height // 2) + random.randint(-80, 80)
-                # Передаем код страны в конструктор шара
-                self.balls.append(CountryBall(self.space_manager, spawn_x, spawn_y, country))
-
+        # Запускаем генерацию первой сцены
+        self.setup_scene()
         self.running = True
+
+    def setup_scene(self):
+        """Полностью очищает старую сцену и создает новую с равномерным спавном флагов."""
+        if self.arena: self.arena.destroy()
+        if self.propeller: self.propeller.destroy()
+        for ball in self.balls: ball.destroy()
+        self.balls.clear()
         
+        # Дополнительно сбрасываем менеджер физики (на случай остаточных связей)
+        self.space_manager.clear_all()
+        
+        #геометрия арены
+        arena_radius = int(self.width * 0.42) 
+        self.arena = RotatingHoleArena(self.space_manager, self.width // 2, self.height // 2, radius=arena_radius)
+        
+        # Если выбрана сцена с пропеллером — создаем его
+        if self.current_scene_type == "propeller":
+            self.propeller = CentralPropeller(self.space_manager, self.width // 2, self.height // 2, arena_radius=arena_radius)
+            self.propeller.body.angular_velocity = self.propeller.rotation_speed * (-self.arena.direction)
+        else:
+            self.propeller = None
+
+        # РАВНОМЕРНЫЙ СПАВН ШАРОВ ПО КРУГУ (полярные координаты)
+        available_countries = get_all_countries()
+        cx, cy = self.width // 2, self.height // 2
+        
+        for country in available_countries:
+            # случайный радиус
+            r = random.uniform(0, 80)
+            # случайный угол(в радианах)
+            angle = random.uniform(0, 2 * math.pi)
+            
+            # Переводим в декартовы координаты X и Y
+            spawn_x = cx + r * math.cos(angle)
+            # Смещаем спавн чуть выше (на 30 пикселей)???
+            #spawn_y = cy + r * math.sin(angle) - 30 
+            spawn_y = cy + r * math.sin(angle);
+            
+            self.balls.append(CountryBall(self.space_manager, spawn_x, spawn_y, country))
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
                 
-            # Спавн шара по клику мышки (теперь этот блок НАХОДИТСЯ ВНУТРИ цикла for)
+            if event.type == pygame.KEYDOWN:
+                # Переключение сцен по нажатию на ПРОБЕЛ
+                if event.key == pygame.K_SPACE:
+                    if self.current_scene_type == "propeller":
+                        self.current_scene_type = "classic"
+                    else:
+                        self.current_scene_type = "propeller"
+                    self.setup_scene()
+                    print(f"Сцена изменена на: {self.current_scene_type}")
+
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = pygame.mouse.get_pos()
-                
-                # Берём случайную страну из нашего списка test_countries для теста
-                # Этот список должен быть доступен (мы объявили его в __init__)
-                # Чтобы не дублировать код, выберем например "ru" или случайный из существующих
-                random_country = random.choice(["ua"])
-                
-                # Теперь передаем все 4 параметра, включая код страны
+                random_country = random.choice(["ua", "ru", "us", "ca"])
                 self.balls.append(CountryBall(self.space_manager, mx, my, random_country))
 
-
-
-                
     def update(self):
         dt = 1.0 / self.fps
         self.space_manager.update(dt)
         
+        for ball in self.balls[:]:
+            if ball.body.position.y > self.height + 50:
+                ball.destroy()         
+                self.balls.remove(ball) 
+                print(f"{ball.country_code.lower()} выбыл") 
+        
     def draw(self):
         self.screen.fill((20, 24, 35))
         
-        self.arena.draw(self.screen)
+        if self.arena: 
+            self.arena.draw(self.screen)
+        if self.propeller: 
+            self.propeller.draw(self.screen)
+            
         for ball in self.balls:
             ball.draw(self.screen)
         
         pygame.display.flip()
+
         
     def run(self):
         while self.running:
@@ -100,5 +121,8 @@ class Game:
             self.draw()
             self.clock.tick(self.fps)
             
+        # При выходе из игры корректно уничтожаем структуры
+        self.arena.destroy()
+        self.propeller.destroy()
         pygame.quit()
         sys.exit()

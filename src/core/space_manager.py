@@ -1,7 +1,7 @@
 import pymunk
 
 class SpaceManager:
-    def __init__(self, gravity_y=1):
+    def __init__(self, gravity_y=600):
         self.gravity_y = gravity_y
         self.space = pymunk.Space()
         self.space.gravity = (0, self.gravity_y)
@@ -17,13 +17,14 @@ class SpaceManager:
             self.space.add(shape)
         
     def remove_object(self, body, shape):
+        # Проверяем наличие перед удалением, чтобы избежать KeyError
         if shape and shape in self.space.shapes:
             self.space.remove(shape)
         if body and body in self.space.bodies:
             self.space.remove(body)
 
     def clear_all(self):
-        """Полностью очищает физическое пространство для загрузки новой сцены."""
+        """Полностью и безопасно очищает физическое пространство для загрузки новой сцены."""
         for shape in list(self.space.shapes):
             self.space.remove(shape)
         for body in list(self.space.bodies):

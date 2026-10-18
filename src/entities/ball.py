@@ -11,6 +11,7 @@ class CountryBall:
     def __init__(self, space_manager, x, y, country_code):
         self.space_manager = space_manager
         self.country_code = country_code.upper()
+        self.is_eliminated = False  # Флаг для программного выбывания
         
         mass = self.MASS
         moment = pymunk.moment_for_circle(mass, 0, self.RADIUS)

@@ -76,6 +76,17 @@ class RotatingHoleArena:
             screen_b = rotate_point(b, current_angle)
             pygame.draw.line(surface, (80, 100, 140), screen_a, screen_b, self.WALL_THICKNESS)
 
+    def is_inside(self, ball_pos):
+        """Проверяет, находится ли шар внутри круглых границ арены."""
+        cx, cy = self.center
+        dx = ball_pos.x - cx
+        dy = ball_pos.y - cy
+        distance = math.sqrt(dx*dx + dy*dy)
+        # Возвращаем True, если шар внутри. Если вылетел за радиус — False.
+        return distance <= (self.radius + self.WALL_THICKNESS)
+
+
+
 class CentralPropeller:
     BLADE_LENGTH_RATIO = 1 
     THICKNESS = 6     

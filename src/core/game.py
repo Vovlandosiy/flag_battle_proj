@@ -17,17 +17,20 @@ class Game:
         self.fps = 60
         
         self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Country Flag Battle - Press SPACE to Switch Scenes")
+        pygame.display.set_caption("Country Flag Battle")
         self.clock = pygame.time.Clock()
         
-        self.space_manager = SpaceManager(gravity_y=600)
+        # Настройка физики полностью внутри SpaceManager
+        self.space_manager = SpaceManager()
         
-        self.current_scene_type = "propeller"  # Может быть "classic" или "propeller"
+        self.current_scene_type = "propeller"  # В Шаге 2 заменим на динамический выбор
         self.arena = None
         self.propeller = None
         self.balls = []
         
-        # Запускаем генерацию первой сцены
+        # Список для фиксации порядка выбывания флагов в текущем раунде
+        self.eliminated_this_round = []
+        
         self.setup_scene()
         self.running = True
 
@@ -74,31 +77,23 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-                
-            if event.type == pygame.KEYDOWN:
-                # Переключение сцен по нажатию на ПРОБЕЛ
-                if event.key == pygame.K_SPACE:
-                    if self.current_scene_type == "propeller":
-                        self.current_scene_type = "classic"
-                    else:
-                        self.current_scene_type = "propeller"
-                    self.setup_scene()
-                    print(f"Сцена изменена на: {self.current_scene_type}")
-
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                mx, my = pygame.mouse.get_pos()
-                random_country = random.choice(["ua", "ru", "us", "ca"])
-                self.balls.append(CountryBall(self.space_manager, mx, my, random_country))
 
     def update(self):
         dt = 1.0 / self.fps
         self.space_manager.update(dt)
         
         for ball in self.balls[:]:
+            # 1. Проверяем, вылетел ли шар из арены программно
+            if not ball.is_eliminated:
+                if self.arena and not self.arena.is_inside(ball.body.position):
+                    ball.is_eliminated = True
+                    self.eliminated_this_round.append(ball.country_code.lower())
+                    print(f"{ball.country_code.lower()} выбыл (программно)")
+            
+            # 2. Физическое удаление из памяти при падении вниз экрана
             if ball.body.position.y > self.height + 50:
                 ball.destroy()         
-                self.balls.remove(ball) 
-                print(f"{ball.country_code.lower()} выбыл") 
+                self.balls.remove(ball)
         
     def draw(self):
         self.screen.fill((20, 24, 35))

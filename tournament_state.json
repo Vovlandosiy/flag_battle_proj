@@ -7,8 +7,11 @@
         "ua",
         "be",
         "py",
-        "ax"
+        "ax",
+        "tr",
+        "gd",
+        "kn"
     ],
-    "current_round": 9,
+    "current_round": 12,
     "is_tournament_phase": false
 }

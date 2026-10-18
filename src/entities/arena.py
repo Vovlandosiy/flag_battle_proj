@@ -42,9 +42,9 @@ class ClassicRotatingArena(BaseArena):
     def __init__(self, space_manager, center_x, center_y, radius):
         super().__init__(space_manager, center_x, center_y, radius)
         
-        self.rotation_speed = random.uniform(0.3, 0.8)
+        self.rotation_speed = random.uniform(0.4, 0.8)
         self.direction = random.choice([1, -1])
-        self.hole_angle_deg = random.randint(15, 25)
+        self.hole_angle_deg = random.randint(20, 30)
         
         self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
         self.body.position = self.center

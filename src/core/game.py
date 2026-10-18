@@ -13,16 +13,14 @@ class Game:
     def __init__(self):
         pygame.init()
         
-        # 1. Реальное разрешение окна для YouTube Shorts
         self.width = 450
         self.height = 800
         self.fps = 60
         
         self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Country Flag Battle - Shorts Mode")
+        pygame.display.set_caption("Country Flag Battle")
         self.clock = pygame.time.Clock()
         
-        # 2. Виртуальный холст для физики (чтобы флаги оставались большими и четкими)
         self.sim_size = 800
         self.sim_surface = pygame.Surface((self.sim_size, self.sim_size))
         
@@ -32,6 +30,23 @@ class Game:
         self.arena = None
         self.balls = []
         self.eliminated_this_round = []
+        
+        self.hud_flag_cache = {}
+        
+        # --- Переменные для логики плавного свайпа верхнего HUD ---
+        self.hud_page = 0              # Текущая страница
+        self.next_page = 0             # Страница, на которую переключаемся
+        self.page_timer = 0            
+        self.page_duration_frames = 300 # 5 секунд до свайпа
+        
+        # Анимация
+        self.is_animating_hud = False  # Идет ли сейчас процесс анимации сдвига
+        self.hud_anim_progress = 0.0   # Прогресс анимации от 0.0 до 1.0
+        self.hud_anim_speed = 0.05     # Скорость свайпа (чем больше, тем быстрее свайп)
+        
+        # Временные поверхности под каждую колонку/страницу HUD (размер зоны: ширина 410, высота 130)
+        self.hud_surf_current = pygame.Surface((410, 150), pygame.SRCALPHA)
+        self.hud_surf_next = pygame.Surface((410, 150), pygame.SRCALPHA)
         
         self.setup_scene()
         self.running = True
@@ -78,8 +93,32 @@ class Game:
         dt = 1.0 / self.fps
         self.space_manager.update(dt)
         
+        # Логика таймера и анимации свайпа верхнего HUD
+        if not self.is_animating_hud:
+            self.page_timer += 1
+            if self.page_timer >= self.page_duration_frames:
+                self.page_timer = 0
+                potential_next = self.hud_page + 1
+                
+                # Проверяем, есть ли флаги на следующей странице
+                if potential_next * 10 < len(self.tournament_manager.qualified_countries):
+                    self.next_page = potential_next
+                else:
+                    self.next_page = 0 # Возвращаемся на первую страницу
+                
+                # Запускаем анимацию только если страницы действительно РАЗНЫЕ
+                if self.next_page != self.hud_page:
+                    self.is_animating_hud = True
+                    self.hud_anim_progress = 0.0
+        else:
+            # Прогресс анимации сдвига
+            self.hud_anim_progress += self.hud_anim_speed
+            if self.hud_anim_progress >= 1.0:
+                self.hud_anim_progress = 1.0
+                self.hud_page = self.next_page
+                self.is_animating_hud = False
+
         for ball in self.balls[:]:
-            # 1. Программное выбывание флага из арены
             if not ball.is_eliminated:
                 if self.arena and not self.arena.is_inside(ball.body.position):
                     ball.is_eliminated = True
@@ -89,79 +128,157 @@ class Game:
                     })
                     print(f"{ball.country_code.lower()} выбыл (программно)")
             
-            # 2. Физическое удаление при падении ниже виртуального холста
             if ball.body.position.y > self.sim_size + 50:
                 ball.destroy()         
                 self.balls.remove(ball)
 
-        # 3. Проверка на победителя раунда
         if len(self.balls) == 1:
             winner_ball = self.balls[0]
             self.tournament_manager.register_winner(winner_ball.country_code)
             self.setup_scene()
+
+    def _get_cached_flag(self, country_code, size=24):
+        """Ленивая загрузка флага из assets в высоком качестве (без мыла)."""
+        key = f"{country_code}_{size}"
+        if key in self.hud_flag_cache:
+            return self.hud_flag_cache[key]
+            
+        import os
+        flag_path = os.path.join("assets", "flags", f"{country_code.lower()}.png")
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        
+        if os.path.exists(flag_path):
+            flag_img = pygame.image.load(flag_path).convert_alpha()
+            # Используем качественное масштабирование
+            flag_img = pygame.transform.smoothscale(flag_img, (size, size))
+            
+            mask = pygame.Surface((size, size), pygame.SRCALPHA)
+            pygame.draw.circle(mask, (255, 255, 255, 255), (size // 2, size // 2), size // 2)
+            surf.blit(flag_img, (0, 0))
+            surf.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+        else:
+            pygame.draw.circle(surf, (100, 100, 100), (size // 2, size // 2), size // 2)
+            
+        self.hud_flag_cache[key] = surf
+        return surf
         
     def draw(self):
-        # Очищаем основной экран глубоким темным цветом
         self.screen.fill((15, 18, 26))
-        
-        # Очищаем виртуальный холст симуляции
         self.sim_surface.fill((20, 24, 35))
         
-        # Отрисовка физических объектов на виртуальном холсте
         if self.arena: 
             self.arena.draw(self.sim_surface)
         for ball in self.balls:
             ball.draw(self.sim_surface)
             
-        # СЖАТИЕ И ПЕРЕНОС: Масштабируем холст симуляции 800x800 под ширину Shorts (например, до 430x430)
         render_size = 430
         scaled_sim = pygame.transform.smoothscale(self.sim_surface, (render_size, render_size))
         
-        # Центрируем уменьшенную арену на экране 450x800 (по Y смещаем примерно на центр)
         arena_x = (self.width - render_size) // 2
-        arena_y = (self.height - render_size) // 2 - 20  # Чуть приподнимем, чтобы снизу было больше места
+        # Сдвигаем арену чуть ниже на Y=180, освобождая место для двух колонок верхнего HUD
+        arena_y = 180 
         self.screen.blit(scaled_sim, (arena_x, arena_y))
         
-        # --- ОТРИСОВКА HUD ПАНЕЛЕЙ (СВЕРХУ И СНИЗУ) ---
         self._draw_hud(arena_y, render_size)
         
         pygame.display.flip()
+
+    def _render_page_to_surface(self, surface, page_idx, font):
+        """Вспомогательный метод для отрисовки конкретной страницы на отдельный холст."""
+        surface.fill((0, 0, 0, 0)) 
         
+        start_idx = page_idx * 10
+        page_countries = self.tournament_manager.qualified_countries[start_idx : start_idx + 10]
+        
+        icon_size_top = 24  # Увеличили размер флагов до 24
+        base_y = 10        # Начальная точка Y внутри холста
+        line_height = 26   # Оптимальный шаг между строками для размера 24
+        
+        for i, country_code in enumerate(page_countries):
+            global_rank = start_idx + i + 1
+            
+            if i < 5:
+                col_x = 0
+                row_y = base_y + i * line_height
+            else:
+                col_x = 210
+                row_y = base_y + (i - 5) * line_height
+                
+            # Порядковый номер (сдвиг +5 по Y для центрирования относительно флага 24x24)
+            rank_text = font.render(f"{global_rank}.", True, (150, 150, 150))
+            surface.blit(rank_text, (col_x, row_y + 5))
+            
+            # Большой качественный флаг 24x24
+            flag_img = self._get_cached_flag(country_code, icon_size_top)
+            surface.blit(flag_img, (col_x + 25, row_y))
+            
+            # Код страны (сдвиг +5 по Y для идеального центрирования с флагом)
+            code_text = font.render(f"— {country_code.upper()}", True, (220, 220, 220))
+            surface.blit(code_text, (col_x + 25 + icon_size_top + 8, row_y + 5))
+
+
+
     def _draw_hud(self, arena_y, render_size):
-        """Отрисовывает интерфейс: прошедших квалификацию сверху, выбывших снизу."""
-        # Настройки шрифта
-        font = pygame.font.SysFont("Arial", 16, bold=True)
+        """Отрисовывает двухколоночный верхний HUD с ПЛАВНЫМ свайпом и динамическую нижнюю сетку."""
+        font = pygame.font.SysFont("Arial", 14, bold=True)
+        title_font = pygame.font.SysFont("Arial", 16, bold=True)
         
-        # 1. ТОП ПАНЕЛЬ (Прошедшие квалификацию)
-        top_text = font.render(f"QUALIFIED ({len(self.tournament_manager.qualified_countries)}/50)", True, (100, 220, 100))
-        self.screen.blit(top_text, (15, 15))
+        # ==========================================
+        # 1. ВЕРХНИЙ HUD (Анимированный плавный свайп)
+        # ==========================================
+        total_qualified = len(self.tournament_manager.qualified_countries)
+        top_text = title_font.render(f"QUALIFIED ({total_qualified}/50)", True, (100, 220, 100))
+        self.screen.blit(top_text, (20, 12))
         
-        # Выводим последние несколько флагов, которые прошли квалификацию вверху в ряд
-        x_offset = 15
-        for country_code in self.tournament_manager.qualified_countries[-10:]: # Показываем последние 10
-            # Чтобы не загружать заново картинку флага, можно выводить просто текст, 
-            # но в будущем мы сможем подгружать сюда мини-иконки. Пока пишем текстом:
-            code_text = font.render(country_code.upper(), True, (200, 200, 200))
-            self.screen.blit(code_text, (x_offset, 40))
-            x_offset += 40
+        # Рендерим текущую страницу на её холст
+        self._render_page_to_surface(self.hud_surf_current, self.hud_page, font)
+        
+        hud_pos_x = 20
+        hud_pos_y = 16
+        
+        if self.is_animating_hud:
+            # Рендерим следующую страницу на второй холст, пока идет анимация
+            self._render_page_to_surface(self.hud_surf_next, self.next_page, font)
+            
+            # Рассчитываем смещение на основе кубического сглаживания (ease-out), чтобы свайп замедлялся к концу
+            # Формула плавности: t = 1 - (1 - x)^3
+            t = 1.0 - math.pow(1.0 - self.hud_anim_progress, 3)
+            offset_x = int(t * 430) # Шаг сдвига равен ширине рабочей зоны свайпа
+            
+            # Текущий холст уезжает ВЛЕВО (вычитаем offset_x)
+            self.screen.blit(self.hud_surf_current, (hud_pos_x - offset_x, hud_pos_y))
+            # Новой холст выезжает СПРАВА (начинает движение от hud_pos_x + 430)
+            self.screen.blit(self.hud_surf_next, (hud_pos_x + 430 - offset_x, hud_pos_y))
+        else:
+            # Если анимации нет, просто выводим текущую страницу статично
+            self.screen.blit(self.hud_surf_current, (hud_pos_x, hud_pos_y))
 
-        # 2. НИЖНЯЯ ПАНЕЛЬ (Лента выбывших в этом раунде флагов)
-        bottom_y = arena_y + render_size + 20
-        bottom_text = font.render("ELIMINATED THIS ROUND:", True, (220, 100, 100))
-        self.screen.blit(bottom_text, (15, bottom_y))
+        # ==========================================
+        # 2. НИЖНЯЯ ПАНЕЛЬ (Динамическая сетка с вытеснением)
+        # ==========================================
+        bottom_y = arena_y + render_size + 15
+        bottom_text = title_font.render("ELIMINATED THIS ROUND:", True, (220, 100, 100))
+        self.screen.blit(bottom_text, (20, bottom_y))
         
-        # Отрисовываем иконки флагов выбывших стран горизонтальной лентой
-        # Берем последние выбывшие флаги, которые помещаются на экране
-        flag_x = 15
-        flag_y = bottom_y + 25
-        icon_size = 28
+        start_x = 20
+        start_y = bottom_y + 25
+        icon_size_bottom = 28
+        spacing = 4
+        max_width = self.width - 20
         
-        for ball_data in self.eliminated_this_round[-14:]: # Показываем последние 14 выбывших
-            # Берем готовую иконку из сохраненных данных шара и масштабируем под ленту
-            small_flag = pygame.transform.smoothscale(ball_data["image"], (icon_size, icon_size))
-            self.screen.blit(small_flag, (flag_x, flag_y))
-            flag_x += icon_size + 3 # Смещение + отступ в 3 пикселя
-
+        current_x = start_x
+        current_y = start_y
+        
+        visible_eliminated = self.eliminated_this_round[-48:]
+        
+        for ball_data in visible_eliminated:
+            if current_x + icon_size_bottom > max_width:
+                current_x = start_x
+                current_y += icon_size_bottom + spacing
+                
+            small_flag = pygame.transform.smoothscale(ball_data["image"], (icon_size_bottom, icon_size_bottom))
+            self.screen.blit(small_flag, (current_x, current_y))
+            current_x += icon_size_bottom + spacing
         
     def run(self):
         while self.running:

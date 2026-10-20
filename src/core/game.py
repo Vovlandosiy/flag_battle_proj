@@ -76,6 +76,10 @@ class Game:
             # Инициализируем движок локально прямо в потоке, чтобы запустить чистый цикл событий
             engine = pyttsx3.init()
             engine.setProperty('rate', 150)
+
+            voices = engine.getProperty('voices')
+            engine.setProperty('voice', voices[2].id) 
+
             engine.say(text)
             engine.runAndWait()
             # Насильно удаляем объект из памяти для очистки ресурсов потока
@@ -192,8 +196,8 @@ class Game:
             self.game_state = "WINNER_SCENE"
             self.winner_timer = 180  
             
-            spoken_code = " ".join(list(self.winner_data['code']))
-            text_to_speak = f"{spoken_code} win"
+            country_name_clean = self.winner_data['code'].title()
+            text_to_speak = f"{country_name_clean} win"
             
             threading.Thread(target=self._speak_worker, args=(text_to_speak,), daemon=True).start()
 
@@ -272,7 +276,7 @@ class Game:
         page_countries = self.tournament_manager.qualified_countries[start_idx : start_idx + 10]
         
         icon_size_top = 54  
-        base_y = 10        # Подняли вверх, так как заголовок ушел в _draw_hud
+        base_y = 10        
         line_height = 62   
         
         for i, country_code in enumerate(page_countries):
@@ -291,8 +295,22 @@ class Game:
             flag_img = self._get_cached_flag(country_code, icon_size_top)
             surface.blit(flag_img, (col_x + 65, row_y))
             
-            code_text = font.render(f"— {country_code.upper()}", True, (220, 220, 220))
-            surface.blit(code_text, (col_x + 65 + icon_size_top + 15, row_y + 10))
+            # --- НОВАЯ ЛОГИКА: Автомасштабирование длинных названий ---
+            display_name = f"— {country_code.upper()}"
+            current_font_size = 32
+            active_font = font
+            
+            # Если текст шире 350 пикселей, уменьшаем шрифт
+            while active_font.size(display_name)[0] > 350 and current_font_size > 18:
+                current_font_size -= 2
+                active_font = pygame.font.SysFont("Arial", current_font_size, bold=True)
+            
+            code_text = active_font.render(display_name, True, (220, 220, 220))
+            
+            # Выравниваем текст по вертикали с учётом его нового размера
+            text_offset_y = 10 + (32 - current_font_size) // 2
+            surface.blit(code_text, (col_x + 65 + icon_size_top + 15, row_y + text_offset_y))
+
 
 
     def _draw_hud(self, arena_y, render_size):
@@ -346,7 +364,7 @@ class Game:
         current_x = start_x
         current_y = start_y
         
-        visible_eliminated = self.eliminated_this_round[-56:] # Берем до 42 флагов (3 полных ряда по 14)
+        visible_eliminated = self.eliminated_this_round[-56:]
         
         for ball_data in visible_eliminated:
             if current_x + icon_size_bottom > max_width:

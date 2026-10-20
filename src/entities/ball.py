@@ -3,9 +3,9 @@ import pygame
 import pymunk
 
 class CountryBall:
-    RADIUS = 18
-    MASS = 1
-    ELASTICITY = 0.6
+    RADIUS = 44
+    MASS = 1.8
+    ELASTICITY = 0.8
     FRICTION = 0.3
 
     def __init__(self, space_manager, x, y, country_code):
@@ -37,7 +37,7 @@ class CountryBall:
         else:
             flag_surf = pygame.Surface((size, size), pygame.SRCALPHA)
             pygame.draw.circle(flag_surf, (100, 100, 100), (self.RADIUS, self.RADIUS), self.RADIUS)
-            font = pygame.font.SysFont("Arial", 10, bold=True)
+            font = pygame.font.SysFont("Arial", 22, bold=True) # Увеличили шрифт с 10 до 22
             text_surf = font.render(self.country_code[:2], True, (255, 255, 255))
             text_rect = text_surf.get_rect(center=(self.RADIUS, self.RADIUS))
             flag_surf.blit(text_surf, text_rect)

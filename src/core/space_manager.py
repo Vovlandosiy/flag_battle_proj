@@ -1,7 +1,7 @@
 import pymunk
 
 class SpaceManager:
-    def __init__(self, gravity_y=600):
+    def __init__(self, gravity_y=1100):
         self.gravity_y = gravity_y
         self.space = pymunk.Space()
         self.space.gravity = (0, self.gravity_y)

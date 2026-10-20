@@ -1,6 +1,7 @@
 # src/core/game.py
 import pygame
 import sys
+import os
 import random
 import math
 from src.core.space_manager import SpaceManager
@@ -13,15 +14,27 @@ class Game:
     def __init__(self):
         pygame.init()
         
-        self.width = 450
-        self.height = 800
+        # Настоящее Full HD разрешение для YouTube Shorts
+        self.virtual_width = 1080
+        self.virtual_height = 1920
+        
+        # Коэффициент сжатия окна для твоего монитора (1080 * 0.45 = 486, 1920 * 0.45 = 864)
+        self.window_scale = 0.50 
+        self.window_width = int(self.virtual_width * self.window_scale)
+        self.window_height = int(self.virtual_height * self.window_scale)
+        
         self.fps = 60
         
-        self.screen = pygame.display.set_mode((self.width, self.height))
+        # Физическое окно на мониторе
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height))
+        # Внутренний холст, где всё рендерится в идеальном качестве
+        self.virtual_screen = pygame.Surface((self.virtual_width, self.virtual_height))
+        
         pygame.display.set_caption("Country Flag Battle")
         self.clock = pygame.time.Clock()
         
-        self.sim_size = 800
+        # Размер холста симуляции физики (арены) делаем больше
+        self.sim_size = 1920
         self.sim_surface = pygame.Surface((self.sim_size, self.sim_size))
         
         self.space_manager = SpaceManager()
@@ -33,23 +46,24 @@ class Game:
         
         self.hud_flag_cache = {}
         
-        # --- Переменные для логики плавного свайпа верхнего HUD ---
-        self.hud_page = 0              # Текущая страница
-        self.next_page = 0             # Страница, на которую переключаемся
+        self.hud_page = 0              
+        self.next_page = 0             
         self.page_timer = 0            
-        self.page_duration_frames = 300 # 5 секунд до свайпа
+        self.page_duration_frames = 300 
         
-        # Анимация
-        self.is_animating_hud = False  # Идет ли сейчас процесс анимации сдвига
-        self.hud_anim_progress = 0.0   # Прогресс анимации от 0.0 до 1.0
-        self.hud_anim_speed = 0.05     # Скорость свайпа (чем больше, тем быстрее свайп)
+        self.is_animating_hud = False  
+        self.hud_anim_progress = 0.0   
+        self.hud_anim_speed = 0.05     
         
-        # Временные поверхности под каждую колонку/страницу HUD (размер зоны: ширина 410, высота 130)
-        self.hud_surf_current = pygame.Surface((410, 150), pygame.SRCALPHA)
-        self.hud_surf_next = pygame.Surface((410, 150), pygame.SRCALPHA)
+        # Увеличили размеры поверхностей HUD под новое разрешение (ширина 1000, высота 400)
+        self.hud_surf_current = pygame.Surface((1000, 400), pygame.SRCALPHA)
+        self.hud_surf_next = pygame.Surface((1000, 400), pygame.SRCALPHA)
+
+        self.show_fps = True
         
         self.setup_scene()
         self.running = True
+
 
     def setup_scene(self):
         """Полностью очищает старую сцену и создает новую на виртуальном холсте."""
@@ -75,7 +89,7 @@ class Game:
 
         cx, cy = self.sim_size // 2, self.sim_size // 2
         for country in available_countries:
-            r = random.uniform(0, 80)
+            r = random.uniform(0, 250) 
             angle = random.uniform(0, 2 * math.pi)
             spawn_x = cx + r * math.cos(angle)
             spawn_y = cy + r * math.sin(angle)
@@ -88,6 +102,11 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_f:
+                    self.show_fps = not self.show_fps
+
 
     def update(self):
         dt = 1.0 / self.fps
@@ -143,7 +162,6 @@ class Game:
         if key in self.hud_flag_cache:
             return self.hud_flag_cache[key]
             
-        import os
         flag_path = os.path.join("assets", "flags", f"{country_code.lower()}.png")
         surf = pygame.Surface((size, size), pygame.SRCALPHA)
         
@@ -163,7 +181,8 @@ class Game:
         return surf
         
     def draw(self):
-        self.screen.fill((15, 18, 26))
+        # Очищаем внутренний холст высокого разрешения
+        self.virtual_screen.fill((15, 18, 26))
         self.sim_surface.fill((20, 24, 35))
         
         if self.arena: 
@@ -171,17 +190,23 @@ class Game:
         for ball in self.balls:
             ball.draw(self.sim_surface)
             
-        render_size = 430
+        # Арена теперь занимает 1000x1000 пикселей внутри Full HD пространства
+        render_size = 1000
         scaled_sim = pygame.transform.smoothscale(self.sim_surface, (render_size, render_size))
         
-        arena_x = (self.width - render_size) // 2
-        # Сдвигаем арену чуть ниже на Y=180, освобождая место для двух колонок верхнего HUD
-        arena_y = 180 
-        self.screen.blit(scaled_sim, (arena_x, arena_y))
+        arena_x = (self.virtual_width - render_size) // 2
+        arena_y = 460 # Центрируем вертикально, оставляя место сверху под HUD
+        self.virtual_screen.blit(scaled_sim, (arena_x, arena_y))
         
+        # Отрисовка HUD происходит на виртуальный экран
         self._draw_hud(arena_y, render_size)
         
+        # Магическое сжатие: уменьшаем Full HD картинку до размеров окна твоего монитора
+        scaled_window = pygame.transform.smoothscale(self.virtual_screen, (self.window_width, self.window_height))
+        self.screen.blit(scaled_window, (0, 0))
+        
         pygame.display.flip()
+
 
     def _render_page_to_surface(self, surface, page_idx, font):
         """Вспомогательный метод для отрисовки конкретной страницы на отдельный холст."""
@@ -190,9 +215,9 @@ class Game:
         start_idx = page_idx * 10
         page_countries = self.tournament_manager.qualified_countries[start_idx : start_idx + 10]
         
-        icon_size_top = 24  # Увеличили размер флагов до 24
-        base_y = 10        # Начальная точка Y внутри холста
-        line_height = 26   # Оптимальный шаг между строками для размера 24
+        icon_size_top = 54  
+        base_y = 10        # Подняли вверх, так как заголовок ушел в _draw_hud
+        line_height = 62   
         
         for i, country_code in enumerate(page_countries):
             global_rank = start_idx + i + 1
@@ -201,75 +226,71 @@ class Game:
                 col_x = 0
                 row_y = base_y + i * line_height
             else:
-                col_x = 210
+                col_x = 500 
                 row_y = base_y + (i - 5) * line_height
                 
-            # Порядковый номер (сдвиг +5 по Y для центрирования относительно флага 24x24)
             rank_text = font.render(f"{global_rank}.", True, (150, 150, 150))
-            surface.blit(rank_text, (col_x, row_y + 5))
+            surface.blit(rank_text, (col_x, row_y + 10))
             
-            # Большой качественный флаг 24x24
             flag_img = self._get_cached_flag(country_code, icon_size_top)
-            surface.blit(flag_img, (col_x + 25, row_y))
+            surface.blit(flag_img, (col_x + 65, row_y))
             
-            # Код страны (сдвиг +5 по Y для идеального центрирования с флагом)
             code_text = font.render(f"— {country_code.upper()}", True, (220, 220, 220))
-            surface.blit(code_text, (col_x + 25 + icon_size_top + 8, row_y + 5))
-
+            surface.blit(code_text, (col_x + 65 + icon_size_top + 15, row_y + 10))
 
 
     def _draw_hud(self, arena_y, render_size):
         """Отрисовывает двухколоночный верхний HUD с ПЛАВНЫМ свайпом и динамическую нижнюю сетку."""
-        font = pygame.font.SysFont("Arial", 14, bold=True)
-        title_font = pygame.font.SysFont("Arial", 16, bold=True)
+        font = pygame.font.SysFont("Arial", 32, bold=True) 
+        title_font = pygame.font.SysFont("Arial", 42, bold=True) 
         
         # ==========================================
-        # 1. ВЕРХНИЙ HUD (Анимированный плавный свайп)
+        # 1. ВЕРХНИЙ HUD (Статичный заголовок по центру + свайп флагов)
         # ==========================================
         total_qualified = len(self.tournament_manager.qualified_countries)
         top_text = title_font.render(f"QUALIFIED ({total_qualified}/50)", True, (100, 220, 100))
-        self.screen.blit(top_text, (20, 12))
+        # Центрируем заголовок по ширине экрана (1080)
+        title_x = (self.virtual_width - top_text.get_width()) // 2
+        self.virtual_screen.blit(top_text, (title_x, 30))
         
         # Рендерим текущую страницу на её холст
         self._render_page_to_surface(self.hud_surf_current, self.hud_page, font)
         
-        hud_pos_x = 20
-        hud_pos_y = 16
+        hud_pos_x = 40
+        hud_pos_y = 100 # Опустили холст ниже, чтобы он не перекрывал заголовок
+        hud_width = self.hud_surf_current.get_width() 
         
         if self.is_animating_hud:
-            # Рендерим следующую страницу на второй холст, пока идет анимация
             self._render_page_to_surface(self.hud_surf_next, self.next_page, font)
             
-            # Рассчитываем смещение на основе кубического сглаживания (ease-out), чтобы свайп замедлялся к концу
-            # Формула плавности: t = 1 - (1 - x)^3
             t = 1.0 - math.pow(1.0 - self.hud_anim_progress, 3)
-            offset_x = int(t * 430) # Шаг сдвига равен ширине рабочей зоны свайпа
+            offset_x = int(t * hud_width) 
             
-            # Текущий холст уезжает ВЛЕВО (вычитаем offset_x)
-            self.screen.blit(self.hud_surf_current, (hud_pos_x - offset_x, hud_pos_y))
-            # Новой холст выезжает СПРАВА (начинает движение от hud_pos_x + 430)
-            self.screen.blit(self.hud_surf_next, (hud_pos_x + 430 - offset_x, hud_pos_y))
+            self.virtual_screen.blit(self.hud_surf_current, (hud_pos_x - offset_x, hud_pos_y))
+            self.virtual_screen.blit(self.hud_surf_next, (hud_pos_x + hud_width - offset_x, hud_pos_y))
         else:
-            # Если анимации нет, просто выводим текущую страницу статично
-            self.screen.blit(self.hud_surf_current, (hud_pos_x, hud_pos_y))
+            self.virtual_screen.blit(self.hud_surf_current, (hud_pos_x, hud_pos_y))
 
         # ==========================================
-        # 2. НИЖНЯЯ ПАНЕЛЬ (Динамическая сетка с вытеснением)
+        # 2. НИЖНЯЯ ПАНЕЛЬ (Идеальная геометрия сетки выбывших)
         # ==========================================
-        bottom_y = arena_y + render_size + 15
+        bottom_y = arena_y + render_size + 40
         bottom_text = title_font.render("ELIMINATED THIS ROUND:", True, (220, 100, 100))
-        self.screen.blit(bottom_text, (20, bottom_y))
+        self.virtual_screen.blit(bottom_text, (40, bottom_y))
         
-        start_x = 20
-        start_y = bottom_y + 25
-        icon_size_bottom = 28
-        spacing = 4
-        max_width = self.width - 20
+        icon_size_bottom = 64
+        spacing = 8  # Уменьшили отступ до 8px
+        # Пересчитываем стартовый X так, чтобы 14 флагов встали ровно по центру холста
+        # 14 флагов * 64px + 13 отступов * 8px = 896 + 104 = 1000px общей ширины ряда.
+        # (1080 - 1000) // 2 = 40px отступ слева и справа. Идеальная симметрия!
+        start_x = 40 
+        start_y = bottom_y + 60
+        max_width = self.virtual_width - 40
         
         current_x = start_x
         current_y = start_y
         
-        visible_eliminated = self.eliminated_this_round[-48:]
+        visible_eliminated = self.eliminated_this_round[-56:] # Берем до 42 флагов (3 полных ряда по 14)
         
         for ball_data in visible_eliminated:
             if current_x + icon_size_bottom > max_width:
@@ -277,8 +298,19 @@ class Game:
                 current_y += icon_size_bottom + spacing
                 
             small_flag = pygame.transform.smoothscale(ball_data["image"], (icon_size_bottom, icon_size_bottom))
-            self.screen.blit(small_flag, (current_x, current_y))
+            self.virtual_screen.blit(small_flag, (current_x, current_y))
             current_x += icon_size_bottom + spacing
+
+        # СЧЕТЧИК ФПС
+        if self.show_fps:
+            fps_font = pygame.font.SysFont("Arial", 24, bold=True)
+            fps_value = int(self.clock.get_fps())
+            fps_text = fps_font.render(f"FPS: {fps_value}", True, (0, 255, 0) if fps_value > 50 else (255, 165, 0))
+            # Прижимаем к правому краю (1080 - ширина текста - 40px отступа)
+            fps_x = self.virtual_width - fps_text.get_width() - 40
+            self.virtual_screen.blit(fps_text, (fps_x, 30))
+
+
         
     def run(self):
         while self.running:

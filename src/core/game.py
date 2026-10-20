@@ -4,6 +4,8 @@ import sys
 import os
 import random
 import math
+import pyttsx3
+import threading
 from src.core.space_manager import SpaceManager
 from src.entities.arena import ARENA_REGISTRY 
 from src.entities.ball import CountryBall
@@ -64,6 +66,24 @@ class Game:
         self.setup_scene()
         self.running = True
 
+        self.game_state = "PLAYING"     
+        self.winner_timer = 0           
+        self.winner_data = None         
+
+    def _speak_worker(self, text):
+        """Вспомогательный метод для озвучки. Создает чистый инстанс TTS при каждом вызове."""
+        try:
+            # Инициализируем движок локально прямо в потоке, чтобы запустить чистый цикл событий
+            engine = pyttsx3.init()
+            engine.setProperty('rate', 150)
+            engine.say(text)
+            engine.runAndWait()
+            # Насильно удаляем объект из памяти для очистки ресурсов потока
+            del engine 
+        except Exception as e:
+            print(f"Ошибка TTS: {e}")
+
+
 
     def setup_scene(self):
         """Полностью очищает старую сцену и создает новую на виртуальном холсте."""
@@ -109,6 +129,14 @@ class Game:
 
 
     def update(self):
+
+        if self.game_state == "WINNER_SCENE":
+            self.winner_timer -= 1
+            if self.winner_timer <= 0:
+                self.game_state = "PLAYING"
+                self.setup_scene()
+            return  # Пропускаем обновление физики во время триумфа
+
         dt = 1.0 / self.fps
         self.space_manager.update(dt)
         
@@ -154,7 +182,20 @@ class Game:
         if len(self.balls) == 1:
             winner_ball = self.balls[0]
             self.tournament_manager.register_winner(winner_ball.country_code)
-            self.setup_scene()
+            
+            high_res_flag = self._get_cached_flag(winner_ball.country_code, 350)
+
+            self.winner_data = {
+                "code": winner_ball.country_code.upper(),
+                "image": high_res_flag
+            }
+            self.game_state = "WINNER_SCENE"
+            self.winner_timer = 180  
+            
+            spoken_code = " ".join(list(self.winner_data['code']))
+            text_to_speak = f"{spoken_code} win"
+            
+            threading.Thread(target=self._speak_worker, args=(text_to_speak,), daemon=True).start()
 
     def _get_cached_flag(self, country_code, size=24):
         """Ленивая загрузка флага из assets в высоком качестве (без мыла)."""
@@ -181,7 +222,6 @@ class Game:
         return surf
         
     def draw(self):
-        # Очищаем внутренний холст высокого разрешения
         self.virtual_screen.fill((15, 18, 26))
         self.sim_surface.fill((20, 24, 35))
         
@@ -190,23 +230,39 @@ class Game:
         for ball in self.balls:
             ball.draw(self.sim_surface)
             
-        # Арена теперь занимает 1000x1000 пикселей внутри Full HD пространства
         render_size = 1000
         scaled_sim = pygame.transform.smoothscale(self.sim_surface, (render_size, render_size))
         
         arena_x = (self.virtual_width - render_size) // 2
-        arena_y = 460 # Центрируем вертикально, оставляя место сверху под HUD
+        arena_y = 460 
         self.virtual_screen.blit(scaled_sim, (arena_x, arena_y))
         
-        # Отрисовка HUD происходит на виртуальный экран
         self._draw_hud(arena_y, render_size)
         
-        # Магическое сжатие: уменьшаем Full HD картинку до размеров окна твоего монитора
+        if self.game_state == "WINNER_SCENE" and self.winner_data:
+            # Создаем полупрозрачную темную подложку на весь экран
+            overlay = pygame.Surface((self.virtual_width, self.virtual_height), pygame.SRCALPHA)
+            overlay.fill((10, 12, 18, 220)) # Темный фон с альфа-каналом
+            self.virtual_screen.blit(overlay, (0, 0))
+            
+            # Масштабируем флаг победителя до огромного размера (350x350 пикселей)
+            big_flag = self.winner_data["image"]
+            flag_x = (self.virtual_width - 350) // 2
+            flag_y = (self.virtual_height - 350) // 2 - 100
+            self.virtual_screen.blit(big_flag, (flag_x, flag_y))
+            
+            # Отрисовываем текст победителя
+            win_font = pygame.font.SysFont("Arial", 80, bold=True)
+            win_text = win_font.render(f"{self.winner_data['code']} WIN!", True, (255, 215, 0)) # Золотой цвет
+            text_x = (self.virtual_width - win_text.get_width()) // 2
+            text_y = flag_y + 400
+            self.virtual_screen.blit(win_text, (text_x, text_y))
+            
+        # Масштабирование под физическое окно монитора
         scaled_window = pygame.transform.smoothscale(self.virtual_screen, (self.window_width, self.window_height))
         self.screen.blit(scaled_window, (0, 0))
         
         pygame.display.flip()
-
 
     def _render_page_to_surface(self, surface, page_idx, font):
         """Вспомогательный метод для отрисовки конкретной страницы на отдельный холст."""

@@ -44,7 +44,7 @@ class ClassicRotatingArena(BaseArena):
         
         self.rotation_speed = random.uniform(0.4, 0.8)
         self.direction = random.choice([1, -1])
-        self.hole_angle_deg = random.randint(20, 30)
+        self.hole_angle_deg = random.randint(30, 30)#20 30
         
         self.body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
         self.body.position = self.center
@@ -102,7 +102,7 @@ class ClassicRotatingArena(BaseArena):
 class PropellerRotatingArena(ClassicRotatingArena):
     """Круглая арена, внутри которой встроен вращающийся пропеллер."""
     BLADE_LENGTH_RATIO = 1 
-    PROP_THICKNESS = 6     
+    PROP_THICKNESS = 34
     PROP_ELASTICITY = 0.8
     PROP_FRICTION = 0.15
 

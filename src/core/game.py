@@ -15,12 +15,10 @@ from src.services.tournament_manager import TournamentManager
 class Game:
     def __init__(self):
         pygame.init()
-        
-        # Настоящее Full HD разрешение для YouTube Shorts
+
         self.virtual_width = 1080
         self.virtual_height = 1920
-        
-        # Коэффициент сжатия окна для твоего монитора (1080 * 0.45 = 486, 1920 * 0.45 = 864)
+        #Кэф сжатия
         self.window_scale = 0.50 
         self.window_width = int(self.virtual_width * self.window_scale)
         self.window_height = int(self.virtual_height * self.window_scale)
@@ -57,7 +55,6 @@ class Game:
         self.hud_anim_progress = 0.0   
         self.hud_anim_speed = 0.05     
         
-        # Увеличили размеры поверхностей HUD под новое разрешение (ширина 1000, высота 400)
         self.hud_surf_current = pygame.Surface((1000, 400), pygame.SRCALPHA)
         self.hud_surf_next = pygame.Surface((1000, 400), pygame.SRCALPHA)
 
@@ -68,7 +65,10 @@ class Game:
 
         self.game_state = "PLAYING"     
         self.winner_timer = 0           
-        self.winner_data = None         
+        self.winner_data = None      
+
+        self.hud_flag_cache = {}
+        self.hud_text_cache = {}  # Новый кэш для оптимизации длинных названий (фикс FPS)   
 
     def _speak_worker(self, text):
         """Вспомогательный метод для озвучки. Создает чистый инстанс TTS при каждом вызове."""
@@ -269,7 +269,7 @@ class Game:
         pygame.display.flip()
 
     def _render_page_to_surface(self, surface, page_idx, font):
-        """Вспомогательный метод для отрисовки конкретной страницы на отдельный холст."""
+        """Вспомогательный метод для отрисовки конкретной страницы на отдельный холст с кэшированием текста."""
         surface.fill((0, 0, 0, 0)) 
         
         start_idx = page_idx * 10
@@ -295,23 +295,27 @@ class Game:
             flag_img = self._get_cached_flag(country_code, icon_size_top)
             surface.blit(flag_img, (col_x + 65, row_y))
             
-            # --- НОВАЯ ЛОГИКА: Автомасштабирование длинных названий ---
-            display_name = f"— {country_code.upper()}"
-            current_font_size = 32
-            active_font = font
+            # --- ЛОГИКА С КЭШИРОВАНИЕМ ТЕКСТА (Убирает просадки FPS) ---
+            cache_key = country_code.lower()
+            if cache_key not in self.hud_text_cache:
+                display_name = f"— {country_code.upper()}"
+                current_font_size = 32
+                active_font = font
+                
+                # Этот тяжелый цикл теперь сработает ТОЛЬКО один раз для новой страны
+                while active_font.size(display_name)[0] > 350 and current_font_size > 18:
+                    current_font_size -= 2
+                    active_font = pygame.font.SysFont("Arial", current_font_size, bold=True)
+                
+                # Создаем готовую поверхность и сохраняем её параметры
+                code_text_surf = active_font.render(display_name, True, (220, 220, 220))
+                text_offset_y = 10 + (32 - current_font_size) // 2
+                
+                self.hud_text_cache[cache_key] = (code_text_surf, text_offset_y)
             
-            # Если текст шире 350 пикселей, уменьшаем шрифт
-            while active_font.size(display_name)[0] > 350 and current_font_size > 18:
-                current_font_size -= 2
-                active_font = pygame.font.SysFont("Arial", current_font_size, bold=True)
-            
-            code_text = active_font.render(display_name, True, (220, 220, 220))
-            
-            # Выравниваем текст по вертикали с учётом его нового размера
-            text_offset_y = 10 + (32 - current_font_size) // 2
+            # Быстро берем готовую поверхность из памяти без вычислений
+            code_text, text_offset_y = self.hud_text_cache[cache_key]
             surface.blit(code_text, (col_x + 65 + icon_size_top + 15, row_y + text_offset_y))
-
-
 
     def _draw_hud(self, arena_y, render_size):
         """Отрисовывает двухколоночный верхний HUD с ПЛАВНЫМ свайпом и динамическую нижнюю сетку."""
@@ -319,7 +323,7 @@ class Game:
         title_font = pygame.font.SysFont("Arial", 42, bold=True) 
         
         # ==========================================
-        # 1. ВЕРХНИЙ HUD (Статичный заголовок по центру + свайп флагов)
+        # 1. ВЕРХНИЙ HUD
         # ==========================================
         total_qualified = len(self.tournament_manager.qualified_countries)
         top_text = title_font.render(f"QUALIFIED ({total_qualified}/50)", True, (100, 220, 100))
@@ -346,7 +350,7 @@ class Game:
             self.virtual_screen.blit(self.hud_surf_current, (hud_pos_x, hud_pos_y))
 
         # ==========================================
-        # 2. НИЖНЯЯ ПАНЕЛЬ (Идеальная геометрия сетки выбывших)
+        # 2. НИЖНЯЯ ПАНЕЛЬ
         # ==========================================
         bottom_y = arena_y + render_size + 40
         bottom_text = title_font.render("ELIMINATED THIS ROUND:", True, (220, 100, 100))
@@ -393,7 +397,7 @@ class Game:
             self.draw()
             self.clock.tick(self.fps)
             
-        # При выходе из игры корректно уничтожаем структуры
+        # При выходе из программы корректно уничтожаем структуры
         self.arena.destroy()
         pygame.quit()
         sys.exit()

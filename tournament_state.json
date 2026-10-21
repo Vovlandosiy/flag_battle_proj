@@ -20,8 +20,17 @@
         "east timor",
         "north macedonia",
         "palau",
-        "cambodia"
+        "cambodia",
+        "latvia",
+        "jersey",
+        "hong kong",
+        "bermuda",
+        "hawaii",
+        "taiwan",
+        "solomon islands",
+        "guatemala",
+        "scotland"
     ],
-    "current_round": 23,
+    "current_round": 34,
     "is_tournament_phase": false
 }

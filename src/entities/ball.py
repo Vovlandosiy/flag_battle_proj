@@ -5,7 +5,7 @@ import pymunk
 class CountryBall:
     RADIUS = 44
     MASS = 1.8
-    ELASTICITY = 0.8
+    ELASTICITY = 0.7
     FRICTION = 0.3
 
     def __init__(self, space_manager, x, y, country_code):

@@ -43,15 +43,20 @@ class TournamentManager:
             print(f"Ошибка сохранения БД турнира: {e}")
 
     def get_available_countries(self):
-        """Возвращает список стран для текущего раунда."""
+        """Возвращает оригинальные имена стран для текущего раунда, исключая прошедшие."""
         all_countries = get_all_countries()
         
         if self.is_tournament_phase:
-            # Если идет турнир — участвуют ТОЛЬКО те, кто прошел квалификацию
+            # В фазе турнира возвращаем тех, кто прошёл отбор
             return self.qualified_countries.copy()
         else:
-            # Если идет квалификация — исключаем уже прошедшие флаги
-            return [c for c in all_countries if c not in self.qualified_countries]
+            # Переводим список прошедших в нижний регистр для точного сравнения
+            qualified_lower = [c.lower().strip() for c in self.qualified_countries]
+            
+            # Фильтруем оригинальный список, сравнивая их в нижнем регистре
+            available = [c for c in all_countries if c.lower().strip() not in qualified_lower]
+            return available
+
 
     def register_winner(self, country_code):
         """Регистрирует последний оставшийся флаг."""
